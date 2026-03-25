@@ -742,8 +742,10 @@ export class App {
     this.bootstrapHydrationState = getBootstrapHydrationState();
 
     // Verify OAuth OTT and hydrate auth session BEFORE any UI subscribes to auth state
-    await initAuthState();
-    initAuthAnalytics();
+    if (BETA_MODE) {
+      await initAuthState();
+      initAuthAnalytics();
+    }
     this.enforceFreeTierLimits();
     this.unsubFreeTier = subscribeAuthState(() => { this.enforceFreeTierLimits(); });
 
@@ -813,7 +815,7 @@ export class App {
     correlationEngine.registerAdapter(disasterAdapter);
     this.state.correlationEngine = correlationEngine;
     this.eventHandlers.setupUnifiedSettings();
-    this.eventHandlers.setupAuthWidget();
+    if (BETA_MODE) this.eventHandlers.setupAuthWidget();
 
     // Phase 4: SearchManager, MapLayerHandlers, CountryIntel
     this.searchManager.init();
