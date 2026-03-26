@@ -6,15 +6,23 @@ loadEnvFile(import.meta.url);
 const COT_KEY = 'market:cot:v1';
 const COT_TTL = 604800;
 
-const TARGET_INSTRUMENTS = [
-  { name: 'S&P 500 E-Mini',    code: 'ES', pattern: /E-MINI S&P 500/i },
-  { name: 'Nasdaq 100 E-Mini', code: 'NQ', pattern: /E-MINI NASDAQ-100/i },
-  { name: '10-Year T-Note',    code: 'ZN', pattern: /10-YEAR U.S. TREASURY NOTE/i },
-  { name: '2-Year T-Note',     code: 'ZT', pattern: /2-YEAR U.S. TREASURY NOTE/i },
-  { name: 'Gold',              code: 'GC', pattern: /GOLD - COMMODITY EXCHANGE/i },
-  { name: 'Crude Oil (WTI)',   code: 'CL', pattern: /CRUDE OIL, LIGHT SWEET/i },
-  { name: 'EUR/USD',           code: 'EC', pattern: /EURO FX/i },
-  { name: 'USD/JPY',           code: 'JY', pattern: /JAPANESE YEN/i },
+// Financial futures: TFF Combined report (Socrata yw9f-hn96)
+// Fields: dealer_positions_long_all, asset_mgr_positions_long, lev_money_positions_long
+const FINANCIAL_INSTRUMENTS = [
+  { name: 'S&P 500 E-Mini',    code: 'ES', pattern: /E-MINI S&P 500 - CHICAGO/i },
+  { name: 'Nasdaq 100 E-Mini', code: 'NQ', pattern: /^NASDAQ MINI - CHICAGO/i },
+  { name: '10-Year T-Note',    code: 'ZN', pattern: /^UST 10Y NOTE - CHICAGO/i },
+  { name: '2-Year T-Note',     code: 'ZT', pattern: /^UST 2Y NOTE - CHICAGO/i },
+  { name: 'EUR/USD',           code: 'EC', pattern: /EURO FX - CHICAGO/i },
+  { name: 'USD/JPY',           code: 'JY', pattern: /JAPANESE YEN - CHICAGO/i },
+];
+
+// Physical commodities: Disaggregated Combined report (Socrata rxbv-e226)
+// Fields: swap_positions_long_all, m_money_positions_long_all (no lev_money equivalent)
+// cftc_contract_market_code used for precise filtering — avoids fragile name matching
+const COMMODITY_INSTRUMENTS = [
+  { name: 'Gold',            code: 'GC', contractCode: '088691' },
+  { name: 'Crude Oil (WTI)', code: 'CL', contractCode: '067651' }, // WTI-PHYSICAL NYMEX
 ];
 
 function parseDate(raw) {
@@ -31,109 +39,85 @@ function parseDate(raw) {
   return s;
 }
 
+async function fetchSocrata(datasetId, extraParams = '') {
+  const url =
+    `https://publicreporting.cftc.gov/resource/${datasetId}.json` +
+    `?$limit=200&$order=report_date_as_yyyy_mm_dd%20DESC&$where=futonly_or_combined%3D%27Combined%27${extraParams}`;
+  const resp = await fetch(url, {
+    headers: { 'User-Agent': CHROME_UA, Accept: 'application/json' },
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  return resp.json();
+}
+
 async function fetchCotData() {
-  const url = 'https://www.cftc.gov/dea/newcot/c_disaggrt.txt';
-  let text;
-  try {
-    const resp = await fetch(url, {
-      headers: { 'User-Agent': CHROME_UA },
-      signal: AbortSignal.timeout(30_000),
-    });
-    if (!resp.ok) {
-      console.warn(`  CFTC fetch failed: HTTP ${resp.status}`);
-      return { instruments: [], reportDate: '' };
-    }
-    text = await resp.text();
-  } catch (e) {
-    console.warn(`  CFTC fetch error: ${e.message}`);
-    return { instruments: [], reportDate: '' };
-  }
-
-  const lines = text.split('\n').map(l => l.trimEnd());
-  if (lines.length < 2) {
-    console.warn('  CFTC: empty file');
-    return { instruments: [], reportDate: '' };
-  }
-
-  const headerLine = lines[0];
-  const headers = headerLine.split('|').map(h => h.trim());
-
-  const colIdx = name => {
-    const idx = headers.indexOf(name);
-    return idx;
+  const toNum = v => {
+    const n = parseInt(String(v ?? '').replace(/,/g, '').trim(), 10);
+    return isNaN(n) ? 0 : n;
   };
 
-  const nameCol          = colIdx('Market_and_Exchange_Names');
-  const dateCol1         = colIdx('Report_Date_as_YYYY-MM-DD');
-  const dateCol2         = colIdx('As_of_Date_In_Form_YYMMDD');
-  const dealerLongCol    = colIdx('Dealer_Positions_Long_All');
-  const dealerShortCol   = colIdx('Dealer_Positions_Short_All');
-  const amLongCol        = colIdx('Asset_Mgr_Positions_Long_All');
-  const amShortCol       = colIdx('Asset_Mgr_Positions_Short_All');
-  const levLongCol       = colIdx('Lev_Money_Positions_Long_All');
-  const levShortCol      = colIdx('Lev_Money_Positions_Short_All');
-
-  if (nameCol === -1) {
-    console.warn('  CFTC: Market_and_Exchange_Names column not found');
-    return { instruments: [], reportDate: '' };
+  let financialRows, commodityRows;
+  try {
+    // yw9f-hn96: TFF Combined — financial futures (ES, NQ, ZN, ZT, EC, JY)
+    // Fields: dealer_positions_long_all, asset_mgr_positions_long, lev_money_positions_long
+    financialRows = await fetchSocrata('yw9f-hn96');
+  } catch (e) {
+    console.warn(`  CFTC TFF fetch failed: ${e.message}`);
+    financialRows = [];
+  }
+  try {
+    // rxbv-e226: Disaggregated All Combined — physical commodities (GC, CL)
+    // Fields: swap_positions_long_all, m_money_positions_long_all
+    // Filter by contract code — more reliable than name pattern matching
+    const codeList = COMMODITY_INSTRUMENTS.map(i => `%27${i.contractCode}%27`).join('%2C');
+    commodityRows = await fetchSocrata('rxbv-e226', `%20AND%20cftc_contract_market_code%20IN%28${codeList}%29`);
+  } catch (e) {
+    console.warn(`  CFTC Disaggregated fetch failed: ${e.message}`);
+    commodityRows = [];
   }
 
-  const dataLines = lines.slice(1).filter(l => l.trim().length > 0);
+  if (!financialRows.length && !commodityRows.length) {
+    console.warn('  CFTC: both endpoints returned empty');
+    return { instruments: [], reportDate: '' };
+  }
 
   const instruments = [];
   let latestReportDate = '';
 
-  for (const target of TARGET_INSTRUMENTS) {
-    const matchingLines = dataLines.filter(line => {
-      const fields = line.split('|');
-      const marketName = fields[nameCol] ?? '';
-      return target.pattern.test(marketName);
-    });
-
-    if (matchingLines.length === 0) {
-      console.warn(`  CFTC: no rows found for ${target.name}`);
-      continue;
-    }
-
-    const row = matchingLines[0];
-    const fields = row.split('|');
-
-    const rawDate = (dateCol1 !== -1 && fields[dateCol1]?.trim())
-      ? fields[dateCol1].trim()
-      : (dateCol2 !== -1 ? fields[dateCol2]?.trim() ?? '' : '');
-    const reportDate = parseDate(rawDate);
-
+  const pushInstrument = (target, row, amLong, amShort, levLong, levShort, dealerLong, dealerShort) => {
+    const reportDate = parseDate(row.report_date_as_yyyy_mm_dd ?? '');
     if (reportDate && !latestReportDate) latestReportDate = reportDate;
-
-    const toNum = idx => {
-      if (idx === -1) return 0;
-      const v = parseInt((fields[idx] ?? '').replace(/,/g, '').trim(), 10);
-      return isNaN(v) ? 0 : v;
-    };
-
-    const dealerLong  = toNum(dealerLongCol);
-    const dealerShort = toNum(dealerShortCol);
-    const amLong      = toNum(amLongCol);
-    const amShort     = toNum(amShortCol);
-    const levLong     = toNum(levLongCol);
-    const levShort    = toNum(levShortCol);
-
     const netPct = ((amLong - amShort) / Math.max(amLong + amShort, 1)) * 100;
-
     instruments.push({
-      name: target.name,
-      code: target.code,
-      reportDate,
-      assetManagerLong: amLong,
-      assetManagerShort: amShort,
-      leveragedFundsLong: levLong,
-      leveragedFundsShort: levShort,
-      dealerLong,
-      dealerShort,
+      name: target.name, code: target.code, reportDate,
+      assetManagerLong: amLong, assetManagerShort: amShort,
+      leveragedFundsLong: levLong, leveragedFundsShort: levShort,
+      dealerLong, dealerShort,
       netPct: parseFloat(netPct.toFixed(2)),
     });
-
     console.log(`  ${target.code}: AM net ${netPct.toFixed(1)}% (${amLong}L / ${amShort}S), date=${reportDate}`);
+  };
+
+  for (const target of FINANCIAL_INSTRUMENTS) {
+    const row = financialRows.find(r => target.pattern.test(r.market_and_exchange_names ?? ''));
+    if (!row) { console.warn(`  CFTC: no row for ${target.name}`); continue; }
+    pushInstrument(target, row,
+      toNum(row.asset_mgr_positions_long),  toNum(row.asset_mgr_positions_short),
+      toNum(row.lev_money_positions_long),   toNum(row.lev_money_positions_short),
+      toNum(row.dealer_positions_long_all),  toNum(row.dealer_positions_short_all),
+    );
+  }
+
+  for (const target of COMMODITY_INSTRUMENTS) {
+    const row = commodityRows.find(r => r.cftc_contract_market_code === target.contractCode);
+    if (!row) { console.warn(`  CFTC: no row for ${target.name}`); continue; }
+    // Physical commodity disaggregated: managed money → assetManager, swap dealers → dealer
+    pushInstrument(target, row,
+      toNum(row.m_money_positions_long_all),  toNum(row.m_money_positions_short_all),
+      0, 0,
+      toNum(row.swap_positions_long_all),     toNum(row.swap__positions_short_all),
+    );
   }
 
   return { instruments, reportDate: latestReportDate };

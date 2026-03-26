@@ -71,14 +71,14 @@ async function main() {
   // 2. Check each service's watchPatterns and startCommand
   for (const svc of services) {
     const { service } = await gql(token, `
-      query ($id: String!, $envId: String!) {
+      query ($id: String!) {
         service(id: $id) {
-          serviceInstances(first: 1, environmentId: $envId) {
+          serviceInstances(first: 1) {
             edges { node { watchPatterns startCommand } }
           }
         }
       }
-    `, { id: svc.id, envId: ENV_ID });
+    `, { id: svc.id });
 
     const instance = service.serviceInstances.edges[0]?.node || {};
     const currentPatterns = instance.watchPatterns || [];
