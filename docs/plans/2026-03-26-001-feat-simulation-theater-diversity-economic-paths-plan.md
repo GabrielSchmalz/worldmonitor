@@ -51,6 +51,7 @@ before writing to `selectedTheaters`.
 ### Change 3 — market_cascade path (economic cascade framing)
 
 Rename `spillover` → `market_cascade` in:
+
 - `buildSimulationPackageEvaluationTargets` (requiredPaths array + the evaluation question)
 - `tryParseSimulationRoundPayload` (expectedIds set)
 - `buildSimulationRound1SystemPrompt` (path name, path description, JSON template)
@@ -64,6 +65,7 @@ spillover).
 ### Change 4 — Tests
 
 Update existing `pathId` validation test + add 3 new tests:
+
 - MENA geo-dedup: verify only 1 theater from MENA when 2 candidates from same group
 - Label cleanup: verify `(supply_chain)` suffix stripped from theater label
 - market_cascade prompt: verify Round 1 prompt contains `market_cascade`, `$/bbl`, `freight rate`
@@ -109,6 +111,7 @@ Update existing `pathId` validation test + add 3 new tests:
 **Files**: `scripts/seed-forecasts.mjs`
 
 **Approach**:
+
 1. After `CHOKEPOINT_MARKET_REGIONS` (line ~136), add:
    ```javascript
    const THEATER_GEO_GROUPS = {
@@ -237,16 +240,19 @@ T1 (update existing — line ~5820): `pathId validation` — change expected IDs
 Also update the rejection test: `spillover` should now be rejected.
 
 T2 (new): `geo-dedup: MENA candidates → only 1 MENA theater selected`
+
 - Build 3 fake candidates: Red Sea (MENA), Strait of Hormuz (MENA), Strait of Malacca (AsiaPacific)
 - Call `buildSimulationPackageFromDeepSnapshot`
 - Assert `pkg.theaters.length === 2` and only 1 theater has marketRegion in MENA
 
 T3 (new): `label cleanup: (supply_chain) suffix stripped`
+
 - Build candidate with `candidateStateLabel = 'Black Sea maritime disruption state (supply_chain)'`
 - Call `buildSimulationPackageFromDeepSnapshot`
 - Assert `pkg.theaters[0].label === 'Black Sea maritime disruption state'`
 
 T4 (new): `Round 1 prompt: market_cascade path present with economic framing`
+
 - Call `buildSimulationRound1SystemPrompt` (exported)
 - Assert prompt includes `'market_cascade'`
 - Assert prompt includes `'$/bbl'` or `'freight rate'`
