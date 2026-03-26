@@ -67,9 +67,6 @@ export class MarketImplicationsPanel extends Panel {
 
     const html = `
       <div style="display:flex;flex-direction:column;gap:10px">
-        <div style="font-size:12px;color:var(--text-dim);line-height:1.5">
-          LLM-generated trade signals derived from live geopolitical, commodity, and market state. Updated each forecast cycle.
-        </div>
         ${data.cards.map(renderCard).join('')}
         <div style="font-size:10px;color:var(--text-dim);padding:8px;border-top:1px solid var(--border);line-height:1.5;text-align:center">${escapeHtml(DISCLAIMER)}</div>
       </div>
