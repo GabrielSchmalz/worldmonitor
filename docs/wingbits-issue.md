@@ -3,89 +3,141 @@
 **Observed:** 2026-03-26 (~08:22–08:30 UTC)
 **Log file:** `logs.1774513970582.errors.log`
 **Service:** AIS Relay (`scripts/ais-relay.cjs`)
+**Status:** Root cause confirmed via Playwright live-site inspection
 
 ## Symptom
 
-`[Wingbits Track] API error: 400` logged continuously — roughly every 1–3 seconds with occasional bursts of 10–15 concurrent 400s. No Wingbits flight data is returned to clients during this window. The relay falls back to returning `{ positions: [], source: 'wingbits' }` with HTTP 502 to the frontend.
+`[Wingbits Track] API error: 400` logged continuously — roughly every 1–3 seconds with occasional bursts of 10–15 concurrent 400s. No Wingbits flight data is returned to clients. The relay falls back to `{ positions: [], source: 'wingbits' }` with HTTP 502.
 
-Sample burst from 08:26:53 UTC (11 errors in under 1 second):
+## Root Cause (Confirmed)
+
+**Wingbits fully migrated from v1 to v2.** The relay still calls the old deprecated endpoint. Their live map (confirmed via Playwright network inspection on 2026-03-26) uses a completely different API:
+
+| | **Old (relay uses)** | **New (Wingbits live site)** |
+|---|---|---|
+| Host | `customer-api.wingbits.com` | `ecs-api.wingbits.com` |
+| Path | `/v1/flights` | `/v2/aircraft/batch` |
+| Auth | `x-api-key` header | Per-tile bearer tokens (see below) |
+| Request format | JSON bbox (`by: 'box'`, `unit: 'nm'`) | JSON tile list + token map |
+| Response format | JSON array | **Protobuf binary** (`arraybuffer`) |
+| Spatial model | Bounding box | Map tiles (z/x/y) |
+
+## v2 API Contract (Reverse-Engineered)
+
+Source: `wingbits.com/_next/static/chunks/5119-35395cc3f4dc7cd1.js` (2026-03-26)
+
+### Step 1 — Get tile tokens
+
 ```
-[Wingbits Track] API error: 400   ×11
-```
+POST https://ecs-api.wingbits.com/v2/aircraft/token
+Content-Type: application/json
 
-## What the relay does
-
-For every `/wingbits/track` request with bbox params, the relay:
-
-1. Converts `lamin/lomin/lamax/lomax` to a Wingbits area object:
-   ```js
-   const centerLat = (lamin + lamax) / 2;
-   const centerLon = (lomin + lomax) / 2;
-   const widthNm  = Math.abs(lomax - lomin) * 60 * Math.cos(centerLat * Math.PI / 180);
-   const heightNm = Math.abs(lamax - lamin) * 60;
-   const areas = [{ alias: 'viewport', by: 'box', la: centerLat, lo: centerLon,
-                    w: widthNm, h: heightNm, unit: 'nm' }];
-   ```
-2. POSTs to `https://customer-api.wingbits.com/v1/flights` with:
-   - Header: `x-api-key: <WINGBITS_API_KEY>`
-   - Body: `JSON.stringify(areas)`
-
-The 400 response body is **never read or logged** — only `resp.status` is captured.
-
-## Probable root causes (in priority order)
-
-### 1. API contract change (most likely)
-
-Wingbits changed their `/v1/flights` request schema. The `by: 'box'` area format or `unit: 'nm'` field may have been renamed or removed. Since every request fails, not just edge-case viewports, this is the strongest candidate.
-
-**To verify:** Call the endpoint manually and read the 400 response body:
-```bash
-curl -s -X POST https://customer-api.wingbits.com/v1/flights \
-  -H "x-api-key: $WINGBITS_API_KEY" \
-  -H "Content-Type: application/json" \
-  -H "Accept: application/json" \
-  -d '[{"alias":"test","by":"box","la":48.8,"lo":2.3,"w":100,"h":100,"unit":"nm"}]'
-```
-
-### 2. API key expired or revoked
-
-Wingbits may return 400 (not 401) for invalid keys depending on their implementation. Check the Wingbits dashboard to confirm the key is active.
-
-### 3. Numeric overflow / zero dimensions
-
-If `widthNm` or `heightNm` computes to 0 or `Infinity` (e.g., extreme zoom or polar coordinates), Wingbits may reject the request. This would cause intermittent rather than universal failures, so it is less likely given the logs.
-
-## What is NOT logged (gap)
-
-The current code only logs `resp.status`. The 400 response body — which would contain the actual error message from Wingbits — is discarded:
-```js
-if (!resp.ok) {
-  console.warn(`[Wingbits Track] API error: ${resp.status}`);
-  return safeEnd(res, 502, ...);
+{
+  "tiles": [
+    { "time_bucket": <unix_seconds>, "z": <zoom>, "x": <tile_x>, "y": <tile_y> },
+    ...
+  ]
 }
 ```
 
-**Fix needed:** Log the response body on error to capture the Wingbits error message:
-```js
-if (!resp.ok) {
-  const body = await resp.text().catch(() => '');
-  console.warn(`[Wingbits Track] API error: ${resp.status} — ${body.slice(0, 300)}`);
-  ...
+Response:
+```json
+{
+  "expires_in": 60,
+  "tokens": {
+    "<timeBucket>:<z>:<x>:<y>": "<bearer_token>",
+    ...
+  }
 }
 ```
+
+Tokens are valid for `expires_in` seconds. The client refreshes 60 seconds before expiry.
+
+### Step 2 — Fetch aircraft batch
+
+```
+POST https://ecs-api.wingbits.com/v2/aircraft/batch
+Content-Type: application/json
+
+{
+  "tiles": [
+    { "time_bucket": <unix_seconds>, "z": <zoom>, "x": <tile_x>, "y": <tile_y> }
+  ],
+  "tokens": {
+    "<timeBucket>:<z>:<x>:<y>": "<bearer_token>"
+  },
+  "min_ab": <minAltitudeFeet>,   // optional
+  "max_ab": <maxAltitudeFeet>    // optional
+}
+```
+
+Response: **protobuf binary** (`Uint8Array`), decoded to:
+```
+{
+  timeBucket: BigInt,
+  zoom: int,
+  tileX: int,
+  tileY: int,
+  aircraft: [...],
+  clusters: [...],
+  totalCount: int
+}
+```
+
+### v2 Aircraft field mapping
+
+Each aircraft in the protobuf payload maps to these display fields:
+
+| Protobuf field | Relay field | Notes |
+|---|---|---|
+| `icao` (int) | `icao24` | `.toString(16).padStart(6,'0')` |
+| `latE7` | `lat` | divide by 1e7 |
+| `lonE7` | `lon` | divide by 1e7 |
+| `heading` | `trackDeg` | divide by 10 |
+| `altitude` | `altitudeM` | feet, not metres — convert |
+| `speed` | `groundSpeedKts` | |
+| `callsign` | `callsign` | |
+| `category` | — | aircraft type category |
+| `flags & 1` | `onGround` | bitmask |
+
+## What the relay currently does (broken)
+
+```js
+// ais-relay.cjs — BROKEN, v1 endpoint no longer works
+const areas = [{ alias: 'viewport', by: 'box', la: centerLat, lo: centerLon,
+                 w: widthNm, h: heightNm, unit: 'nm' }];
+const resp = await fetch('https://customer-api.wingbits.com/v1/flights', {
+  method: 'POST',
+  headers: { 'x-api-key': apiKey, ... },
+  body: JSON.stringify(areas),
+});
+// → always returns 400
+```
+
+Additionally, the 400 response body is never read — only `resp.status` is captured — so the API error message was never surfaced in logs.
+
+## Migration effort
+
+This is not a simple URL swap. The v2 migration requires:
+
+1. **Tile math**: Convert bbox → map tile coordinates at the appropriate zoom level
+2. **Token flow**: Fetch per-tile tokens before each batch call (with 60s expiry cache)
+3. **Protobuf decode**: Decode the binary response (the protobuf schema is not public — would need to reverse-engineer from the JS bundle or contact Wingbits)
+4. **Field remapping**: `latE7/lonE7` integer format, altitude in feet (not metres × 0.3048)
+
+Alternatively, contact Wingbits support to ask if a **v2 customer API key** can be issued that bypasses the per-tile token flow, or if a JSON wrapper endpoint exists.
 
 ## Impact
 
-- All Wingbits live flight position data is unavailable
-- Theater posture and military flight tracking panels that depend on Wingbits show no positions
-- The relay returns `positions: []` so the UI shows an empty map, not an error state
-- Callsign-only lookups still work if the in-memory `wingbitsIndex` was populated before the failures started
+- All live Wingbits flight position data is unavailable
+- Theater posture and military flight tracking panels show no positions
+- The relay silently returns `positions: []` — UI shows empty map with no error
+- Callsign-only lookups work only if `wingbitsIndex` was seeded before failures started
 
 ## Resolution checklist
 
-- [ ] Read the 400 response body (curl test above or add logging)
-- [ ] Check Wingbits dashboard: is `WINGBITS_API_KEY` still valid?
-- [ ] Check Wingbits API changelog / release notes for schema changes to `/v1/flights`
-- [ ] Add response body logging to `[Wingbits Track]` error path in `ais-relay.cjs`
-- [ ] Once root cause confirmed, update the area payload format or rotate the key
-- [ ] Re-deploy relay on Railway and verify errors stop
+- [ ] Contact Wingbits: ask for v2 API docs and whether `x-api-key` auth still works on v2
+- [ ] Confirm `customer-api.wingbits.com/v1/flights` is deprecated (try curl, expect 4xx/5xx)
+- [ ] If Wingbits provides v2 docs: implement tile math + token flow + protobuf decode in relay
+- [ ] Add response body logging to error path in `ais-relay.cjs` (quick fix regardless)
+- [ ] After relay update, redeploy on Railway and verify `[Wingbits Track]` errors stop
