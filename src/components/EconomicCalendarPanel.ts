@@ -1,5 +1,16 @@
+import type { EconomicServiceClient } from '@/generated/client/worldmonitor/economic/v1/service_client';
 import { Panel } from './Panel';
 import { escapeHtml } from '@/utils/sanitize';
+
+let _client: EconomicServiceClient | null = null;
+async function getEconomicClient(): Promise<EconomicServiceClient> {
+  if (!_client) {
+    const { EconomicServiceClient } = await import('@/generated/client/worldmonitor/economic/v1/service_client');
+    const { getRpcBaseUrl } = await import('@/services/rpc-client');
+    _client = new EconomicServiceClient(getRpcBaseUrl(), { fetch: (...args: Parameters<typeof fetch>) => globalThis.fetch(...args) });
+  }
+  return _client;
+}
 
 const COUNTRY_FLAGS: Record<string, string> = {
   US: '🇺🇸',
@@ -65,9 +76,7 @@ export class EconomicCalendarPanel extends Panel {
   public async fetchData(): Promise<boolean> {
     this.showLoading('Loading economic calendar...');
     try {
-      const { EconomicServiceClient } = await import('@/generated/client/worldmonitor/economic/v1/service_client');
-      const { getRpcBaseUrl } = await import('@/services/rpc-client');
-      const client = new EconomicServiceClient(getRpcBaseUrl(), { fetch: (...args: Parameters<typeof fetch>) => globalThis.fetch(...args) });
+      const client = await getEconomicClient();
       const today = new Date();
       const fromDate = today.toISOString().slice(0, 10);
       const toDate = new Date(today.getTime() + 30 * 86400_000).toISOString().slice(0, 10);

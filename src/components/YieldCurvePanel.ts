@@ -1,5 +1,16 @@
+import type { EconomicServiceClient } from '@/generated/client/worldmonitor/economic/v1/service_client';
 import { Panel } from './Panel';
 import { escapeHtml } from '@/utils/sanitize';
+
+let _client: EconomicServiceClient | null = null;
+async function getEconomicClient(): Promise<EconomicServiceClient> {
+  if (!_client) {
+    const { EconomicServiceClient } = await import('@/generated/client/worldmonitor/economic/v1/service_client');
+    const { getRpcBaseUrl } = await import('@/services/rpc-client');
+    _client = new EconomicServiceClient(getRpcBaseUrl(), { fetch: (...args: Parameters<typeof fetch>) => globalThis.fetch(...args) });
+  }
+  return _client;
+}
 
 const SERIES_IDS = ['DGS1MO', 'DGS3MO', 'DGS6MO', 'DGS1', 'DGS2', 'DGS5', 'DGS10', 'DGS30'] as const;
 const TENOR_LABELS = ['1M', '3M', '6M', '1Y', '2Y', '5Y', '10Y', '30Y'];
@@ -124,9 +135,7 @@ export class YieldCurvePanel extends Panel {
   public async fetchData(): Promise<boolean> {
     this.showLoading();
     try {
-      const { EconomicServiceClient } = await import('@/generated/client/worldmonitor/economic/v1/service_client');
-      const { getRpcBaseUrl } = await import('@/services/rpc-client');
-      const client = new EconomicServiceClient(getRpcBaseUrl(), { fetch: (...args: Parameters<typeof fetch>) => globalThis.fetch(...args) });
+      const client = await getEconomicClient();
       const resp = await client.getFredSeriesBatch({ seriesIds: [...SERIES_IDS], limit: 2 });
 
       const results = resp.results ?? {};

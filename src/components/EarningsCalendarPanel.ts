@@ -1,5 +1,16 @@
+import type { MarketServiceClient } from '@/generated/client/worldmonitor/market/v1/service_client';
 import { Panel } from './Panel';
 import { escapeHtml } from '@/utils/sanitize';
+
+let _client: MarketServiceClient | null = null;
+async function getMarketClient(): Promise<MarketServiceClient> {
+  if (!_client) {
+    const { MarketServiceClient } = await import('@/generated/client/worldmonitor/market/v1/service_client');
+    const { getRpcBaseUrl } = await import('@/services/rpc-client');
+    _client = new MarketServiceClient(getRpcBaseUrl(), { fetch: (...args: Parameters<typeof fetch>) => globalThis.fetch(...args) });
+  }
+  return _client;
+}
 
 interface EarningsEntry {
   symbol: string;
@@ -83,9 +94,7 @@ export class EarningsCalendarPanel extends Panel {
 
   private async refreshFromRpc(): Promise<boolean> {
     try {
-      const { MarketServiceClient } = await import('@/generated/client/worldmonitor/market/v1/service_client');
-      const { getRpcBaseUrl } = await import('@/services/rpc-client');
-      const client = new MarketServiceClient(getRpcBaseUrl(), { fetch: (...args: Parameters<typeof fetch>) => globalThis.fetch(...args) });
+      const client = await getMarketClient();
       const today = new Date();
       const future = new Date();
       future.setDate(future.getDate() + 14);

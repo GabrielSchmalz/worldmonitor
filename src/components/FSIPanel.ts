@@ -1,5 +1,17 @@
+import type { MarketServiceClient } from '@/generated/client/worldmonitor/market/v1/service_client';
 import { Panel } from './Panel';
 import { escapeHtml } from '@/utils/sanitize';
+import { getHydratedData } from '@/services/bootstrap';
+
+let _client: MarketServiceClient | null = null;
+async function getMarketClient(): Promise<MarketServiceClient> {
+  if (!_client) {
+    const { MarketServiceClient } = await import('@/generated/client/worldmonitor/market/v1/service_client');
+    const { getRpcBaseUrl } = await import('@/services/rpc-client');
+    _client = new MarketServiceClient(getRpcBaseUrl(), { fetch: (...args: Parameters<typeof fetch>) => globalThis.fetch(...args) });
+  }
+  return _client;
+}
 
 function fsiLabelColor(label: string): string {
   if (label === 'Low Stress') return '#27ae60';
@@ -32,9 +44,25 @@ export class FSIPanel extends Panel {
   public async fetchData(): Promise<boolean> {
     this.showLoading();
     try {
-      const { MarketServiceClient } = await import('@/generated/client/worldmonitor/market/v1/service_client');
-      const { getRpcBaseUrl } = await import('@/services/rpc-client');
-      const client = new MarketServiceClient(getRpcBaseUrl(), { fetch: (...args: Parameters<typeof fetch>) => globalThis.fetch(...args) });
+      const hydrated = getHydratedData('fearGreedIndex') as Record<string, unknown> | undefined;
+      if (hydrated && !hydrated.unavailable) {
+        const hdr = (hydrated.headerMetrics ?? {}) as Record<string, Record<string, unknown> | null>;
+        const fsiValue = Number(hdr?.fsi?.value ?? 0);
+        const fsiLabel = String(hdr?.fsi?.label ?? '');
+        if (fsiValue > 0) {
+          this._hasData = true;
+          this.render({
+            fsiValue,
+            fsiLabel,
+            hygPrice: 0,
+            tltPrice: 0,
+            vix: Number(hdr?.vix?.value ?? 0),
+            hySpread: Number(hdr?.hySpread?.value ?? 0),
+          });
+          return true;
+        }
+      }
+      const client = await getMarketClient();
       const resp = await client.getFearGreedIndex({});
       if (resp.unavailable || resp.fsiValue <= 0) {
         if (!this._hasData) this.showError('FSI data unavailable', () => void this.fetchData());

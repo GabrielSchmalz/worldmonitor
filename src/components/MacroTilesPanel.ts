@@ -1,5 +1,16 @@
+import type { EconomicServiceClient } from '@/generated/client/worldmonitor/economic/v1/service_client';
 import { Panel } from './Panel';
 import { escapeHtml } from '@/utils/sanitize';
+
+let _client: EconomicServiceClient | null = null;
+async function getEconomicClient(): Promise<EconomicServiceClient> {
+  if (!_client) {
+    const { EconomicServiceClient } = await import('@/generated/client/worldmonitor/economic/v1/service_client');
+    const { getRpcBaseUrl } = await import('@/services/rpc-client');
+    _client = new EconomicServiceClient(getRpcBaseUrl(), { fetch: (...args: Parameters<typeof fetch>) => globalThis.fetch(...args) });
+  }
+  return _client;
+}
 
 interface MacroTile {
   id: string;
@@ -11,6 +22,7 @@ interface MacroTile {
   lowerIsBetter: boolean;
   neutral?: boolean;
   format: (v: number) => string;
+  deltaFormat?: (v: number) => string;
 }
 
 function pctFmt(v: number): string {
@@ -56,8 +68,9 @@ function deltaColor(delta: number, lowerIsBetter: boolean, neutral: boolean): st
 function tileHtml(tile: MacroTile): string {
   const val = tile.value !== null ? escapeHtml(tile.format(tile.value)) : 'N/A';
   const delta = tile.value !== null && tile.prior !== null ? tile.value - tile.prior : null;
+  const fmt = tile.deltaFormat ?? tile.format;
   const deltaStr = delta !== null
-    ? `${delta >= 0 ? '+' : ''}${tile.id === 'cpi' ? delta.toFixed(2) : tile.format(delta).replace('$', '').replace('B', '')}${tile.id === 'cpi' ? '' : tile.id === 'gdp' ? 'B' : ''} vs prior`
+    ? `${delta >= 0 ? '+' : ''}${fmt(delta)} vs prior`
     : '';
   const deltaColor_ = delta !== null ? deltaColor(delta, tile.lowerIsBetter, tile.neutral ?? false) : 'var(--text-dim)';
 
@@ -79,9 +92,7 @@ export class MacroTilesPanel extends Panel {
   public async fetchData(): Promise<boolean> {
     this.showLoading();
     try {
-      const { EconomicServiceClient } = await import('@/generated/client/worldmonitor/economic/v1/service_client');
-      const { getRpcBaseUrl } = await import('@/services/rpc-client');
-      const client = new EconomicServiceClient(getRpcBaseUrl(), { fetch: (...args: Parameters<typeof fetch>) => globalThis.fetch(...args) });
+      const client = await getEconomicClient();
       const resp = await client.getFredSeriesBatch({
         seriesIds: ['CPIAUCSL', 'UNRATE', 'GDP', 'FEDFUNDS'],
         limit: 14,
@@ -98,9 +109,9 @@ export class MacroTilesPanel extends Panel {
       const fed = lastTwo(fedObs);
 
       const tiles: MacroTile[] = [
-        { id: 'cpi', label: 'CPI (YoY)', unit: '%', ...cpi, lowerIsBetter: true, format: pctFmt },
+        { id: 'cpi', label: 'CPI (YoY)', unit: '%', ...cpi, lowerIsBetter: true, format: pctFmt, deltaFormat: (v) => v.toFixed(2) },
         { id: 'unrate', label: 'Unemployment', unit: '%', ...unrate, lowerIsBetter: true, format: pctFmt },
-        { id: 'gdp', label: 'GDP (Billions)', unit: '$B', ...gdp, lowerIsBetter: false, format: gdpFmt },
+        { id: 'gdp', label: 'GDP (Billions)', unit: '$B', ...gdp, lowerIsBetter: false, format: gdpFmt, deltaFormat: (v) => `${v.toLocaleString(undefined, { maximumFractionDigits: 0 })}B` },
         { id: 'fed', label: 'Fed Funds Rate', unit: '%', ...fed, lowerIsBetter: false, neutral: true, format: pctFmt },
       ];
 

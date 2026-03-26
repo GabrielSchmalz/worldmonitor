@@ -1,5 +1,16 @@
+import type { MarketServiceClient } from '@/generated/client/worldmonitor/market/v1/service_client';
 import { Panel } from './Panel';
 import { escapeHtml } from '@/utils/sanitize';
+
+let _client: MarketServiceClient | null = null;
+async function getMarketClient(): Promise<MarketServiceClient> {
+  if (!_client) {
+    const { MarketServiceClient } = await import('@/generated/client/worldmonitor/market/v1/service_client');
+    const { getRpcBaseUrl } = await import('@/services/rpc-client');
+    _client = new MarketServiceClient(getRpcBaseUrl(), { fetch: (...args: Parameters<typeof fetch>) => globalThis.fetch(...args) });
+  }
+  return _client;
+}
 
 interface CotInstrumentData {
   name: string;
@@ -64,9 +75,7 @@ export class CotPositioningPanel extends Panel {
   public async fetchData(): Promise<boolean> {
     this.showLoading();
     try {
-      const { MarketServiceClient } = await import('@/generated/client/worldmonitor/market/v1/service_client');
-      const { getRpcBaseUrl } = await import('@/services/rpc-client');
-      const client = new MarketServiceClient(getRpcBaseUrl(), { fetch: (...args: Parameters<typeof fetch>) => globalThis.fetch(...args) });
+      const client = await getMarketClient();
       const resp = await client.getCotPositioning({});
       if (resp.unavailable || !resp.instruments || resp.instruments.length === 0) {
         if (!this._hasData) this.showError('COT data unavailable', () => void this.fetchData());
