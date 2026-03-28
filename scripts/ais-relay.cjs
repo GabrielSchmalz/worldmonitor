@@ -7489,6 +7489,7 @@ function ytFetchViaProxy(targetUrl, proxy) {
     }
     const connectReq = http.request(connectOpts);
     connectReq.on('connect', (_res, socket) => {
+      connectReq.setTimeout(0);
       const req = https.request({
         hostname: target.hostname,
         path: target.pathname + target.search,
