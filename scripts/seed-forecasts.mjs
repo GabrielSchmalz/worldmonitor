@@ -11322,11 +11322,13 @@ const NEGATION_TERMS = ['ceasefire', 'reopen', 'reopened', 'resolv', 'diplomatic
 const SIMULATION_MERGE_ACCEPT_THRESHOLD = 0.50;
 const SIMULATION_ELIGIBILITY_RANK_THRESHOLD = 0.40;
 
-function contradictsPremise(invalidator, expandedPath) {
+function contradictsPremise(invalidator, expandedPath, fromSimulation = false) {
   if (!invalidator || typeof invalidator !== 'string') return false;
   const text = invalidator.toLowerCase();
-  const hasNegation = NEGATION_TERMS.some((t) => text.includes(t));
-  if (!hasNegation) return false;
+  if (!fromSimulation) {
+    const hasNegation = NEGATION_TERMS.some((t) => text.includes(t));
+    if (!hasNegation) return false;
+  }
   const routeKey = expandedPath?.candidate?.routeFacilityKey || '';
   const commodityKey = expandedPath?.candidate?.commodityKey || '';
   if (routeKey || commodityKey) {
@@ -11389,7 +11391,7 @@ function computeSimulationAdjustment(expandedPath, simTheaterResult, candidatePa
   }
 
   for (const inv of invalidators) {
-    if (contradictsPremise(inv, expandedPath)) {
+    if (contradictsPremise(inv, expandedPath, true)) {
       adjustment -= 0.12;
       details.invalidatorHit = true;
       break;

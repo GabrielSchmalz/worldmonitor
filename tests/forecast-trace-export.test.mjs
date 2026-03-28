@@ -6502,9 +6502,18 @@ describe('phase 3 simulation re-ingestion — matching helpers', () => {
     assert.ok(!contradictsPremise('Red Sea shipping restored', path));
   });
 
-  it('contradictsPremise returns false without negation language', () => {
+  it('contradictsPremise returns false without negation language (default)', () => {
     const path = { candidate: { routeFacilityKey: 'Strait of Hormuz', commodityKey: '' } };
     assert.ok(!contradictsPremise('Strait of Hormuz under continued risk', path));
+  });
+
+  it('contradictsPremise fromSimulation=true: fires on simulation-style invalidator without negation terms', () => {
+    // Regression: simulation invalidators use neutral language ("clearance of the Suez Canal")
+    // not geopolitical resolution language ("reopened"). fromSimulation=true skips the negation guard.
+    const path = { candidate: { routeFacilityKey: 'Suez Canal', commodityKey: '' } };
+    assert.ok(contradictsPremise('Immediate and complete clearance of the Suez Canal within 24 hours.', path, true));
+    // Still false when route not mentioned, even in simulation context
+    assert.ok(!contradictsPremise('Global economic downturn dampening energy demand.', path, true));
   });
 
   it('negatesDisruption detects commodity restoration', () => {
