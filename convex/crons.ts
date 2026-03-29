@@ -1,9 +1,12 @@
 import { cronJobs } from "convex/server";
+import { internal } from "./_generated/api";
 
 const crons = cronJobs();
 
-// Phase 1: uncomment after creating convex/telegramPairingTokens.ts and running npx convex dev --once
-// import { internal } from "./_generated/api";
-// crons.hourly("cleanup-expired-pairing-tokens", { minuteUTC: 27 }, internal.telegramPairingTokens.cleanupExpired);
+crons.hourly(
+  "cleanup-expired-pairing-tokens",
+  { minuteUTC: 27 },
+  internal.telegramPairingTokens.cleanupExpired,
+);
 
 export default crons;
