@@ -11,7 +11,9 @@ function getKey(version) {
   if (version === 'v1') {
     const raw = process.env[KEY_ENV];
     if (!raw) throw new Error(`${KEY_ENV} is not set`);
-    return Buffer.from(raw, 'base64');
+    const key = Buffer.from(raw, 'base64');
+    if (key.length !== 32) throw new Error(`${KEY_ENV} must be 32 bytes for AES-256 (got ${key.length})`);
+    return key;
   }
   throw new Error(`Unknown key version: ${version}`);
 }
