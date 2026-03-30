@@ -112,7 +112,7 @@ export default async function handler(req: Request): Promise<Response> {
     } catch (err) {
       console.error('[notification-channels] GET error:', err);
       const status = convexErrorStatus(err);
-      if (status === 500) await captureEdgeException(err, { handler: 'notification-channels', method: 'GET' });
+      if (status === 500) captureEdgeException(err, { handler: 'notification-channels', method: 'GET' });
       return json({ error: 'Failed to fetch' }, status, corsHeaders);
     }
   }
@@ -175,7 +175,7 @@ export default async function handler(req: Request): Promise<Response> {
     } catch (err) {
       console.error('[notification-channels] POST error:', err);
       const status = convexErrorStatus(err);
-      if (status === 500) await captureEdgeException(err, { handler: 'notification-channels', method: 'POST' });
+      if (status === 500) captureEdgeException(err, { handler: 'notification-channels', method: 'POST' });
       return json({ error: 'Operation failed' }, status, corsHeaders);
     }
   }
