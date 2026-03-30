@@ -282,7 +282,7 @@ components:
                 startedAt:
                     type: integer
                     format: int64
-                    description: 'Event start time as Unix epoch milliseconds.. Warning: Values > 2^53 may lose precision in JavaScript'
+                    description: 'Event start time as Unix epoch milliseconds. Warning: Values > 2^53 may lose precision in JavaScript'
                 status:
                     type: string
                     description: 'Event status: alert/ongoing/past.'

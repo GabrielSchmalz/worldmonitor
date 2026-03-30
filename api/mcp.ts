@@ -184,7 +184,7 @@ const TOOL_REGISTRY: ToolDef[] = [
     inputSchema: { type: 'object', properties: {}, required: [] },
     _cacheKeys: ['climate:anomalies:v1', 'climate:disasters:v1', 'weather:alerts:v1'],
     _seedMetaKey: 'seed-meta:climate:anomalies',
-    _maxStaleMin: 120,
+    _maxStaleMin: 720,
   },
   {
     name: 'get_infrastructure_status',

@@ -22,7 +22,7 @@ message ClimateDisaster {
   double lng = 7;
   // Severity level. GDACS: green/orange/red. ReliefWeb: low/medium/high.
   string severity = 8;
-  // Event start time as Unix epoch milliseconds.
+  // Event start time as Unix epoch milliseconds
   int64 started_at = 9 [(sebuf.http.int64_encoding) = INT64_ENCODING_NUMBER];
   // Event status: alert/ongoing/past.
   string status = 10;
