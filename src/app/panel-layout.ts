@@ -93,7 +93,7 @@ import { initSubscriptionWatch, destroySubscriptionWatch } from '@/services/bill
 import { getUserId } from '@/services/user-identity';
 import { initPaymentFailureBanner } from '@/components/payment-failure-banner';
 import { handleCheckoutReturn } from '@/services/checkout-return';
-import { initCheckoutOverlay, showCheckoutSuccess } from '@/services/checkout';
+import { initCheckoutOverlay, destroyCheckoutOverlay, showCheckoutSuccess } from '@/services/checkout';
 import { McpDataPanel } from '@/components/McpDataPanel';
 import { openMcpConnectModal } from '@/components/McpConnectModal';
 import { loadMcpPanels, saveMcpPanel } from '@/services/mcp-store';
@@ -132,6 +132,8 @@ export class PanelLayoutManager implements AppModule {
   private readonly applyTimeRangeFilterDebounced: (() => void) & { cancel(): void };
   private unsubscribeAuth: (() => void) | null = null;
   private proBlockUnsubscribe: (() => void) | null = null;
+  private unsubscribeEntitlementChange: (() => void) | null = null;
+  private unsubscribePaymentFailureBanner: (() => void) | null = null;
 
   constructor(ctx: AppContext, callbacks: PanelLayoutManagerCallbacks) {
     this.ctx = ctx;
@@ -152,7 +154,7 @@ export class PanelLayoutManager implements AppModule {
     if (userId) {
       initEntitlementSubscription(userId).catch(() => {});
       initSubscriptionWatch(userId).catch(() => {});
-      initPaymentFailureBanner();
+      this.unsubscribePaymentFailureBanner = initPaymentFailureBanner();
     }
 
     initCheckoutOverlay(() => showCheckoutSuccess());
@@ -161,7 +163,7 @@ export class PanelLayoutManager implements AppModule {
     // Skip the initial snapshot to avoid a reload loop for users who already have
     // premium via legacy signals (API key / wm-pro-key).
     let skipInitialSnapshot = true;
-    onEntitlementChange(() => {
+    this.unsubscribeEntitlementChange = onEntitlementChange(() => {
       if (skipInitialSnapshot) {
         skipInitialSnapshot = false;
         return;
@@ -215,6 +217,17 @@ export class PanelLayoutManager implements AppModule {
     // Clean up billing subscription watch + entitlement subscription
     destroySubscriptionWatch();
     destroyEntitlementSubscription();
+
+    // Clean up entitlement change listener
+    this.unsubscribeEntitlementChange?.();
+    this.unsubscribeEntitlementChange = null;
+
+    // Clean up payment failure banner subscription
+    this.unsubscribePaymentFailureBanner?.();
+    this.unsubscribePaymentFailureBanner = null;
+
+    // Reset checkout overlay so next layout init can register its callback
+    destroyCheckoutOverlay();
 
     window.removeEventListener('resize', this.ensureCorrectZones);
   }
