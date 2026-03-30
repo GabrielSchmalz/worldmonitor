@@ -11,6 +11,8 @@ const CANONICAL_KEY = 'climate:anomalies:v1';
 const CACHE_TTL = 10800; // 3h
 const ANOMALY_BATCH_SIZE = 8;
 const ANOMALY_BATCH_DELAY_MS = 750;
+// Daily precipitation deltas are in mm/day (Open-Meteo daily precipitation_sum).
+// Thresholds were calibrated against ERA5-style daily precipitation distributions.
 const PRECIP_MODERATE_THRESHOLD = 6;
 const PRECIP_EXTREME_THRESHOLD = 12;
 const PRECIP_MIXED_THRESHOLD = 3;
@@ -97,7 +99,10 @@ export function buildClimateAnomalyFromResponse(zone, payload, normalsIndex) {
   if (!latestDate) return null;
   const month = Number(latestDate.slice(5, 7));
   const monthlyNormal = normalsIndex.get(`${zone.name}:${month}`);
-  if (!monthlyNormal) throw new Error(`Missing monthly normal for ${zone.name} month ${month}`);
+  if (!monthlyNormal) {
+    console.warn(`  [CLIMATE] Missing monthly normal for ${zone.name} month ${month}; skipping zone`);
+    return null;
+  }
 
   return buildClimateAnomaly(zone, payload.daily, monthlyNormal);
 }

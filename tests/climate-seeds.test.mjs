@@ -33,6 +33,17 @@ describe('climate zone normals', () => {
     assert.equal(normals[1].precipMean, 1);
   });
 
+  it('drops months that have zero samples', () => {
+    const normals = computeMonthlyNormals({
+      time: ['1991-01-01'],
+      temperature_2m_mean: [10],
+      precipitation_sum: [2],
+    });
+
+    assert.equal(normals.length, 1);
+    assert.equal(normals[0].month, 1);
+  });
+
   it('maps multi-location archive responses back to their zones', () => {
     const zones = [
       { name: 'Zone A', lat: 1, lon: 2 },
@@ -63,6 +74,36 @@ describe('climate zone normals', () => {
     assert.equal(normals[1].zone, 'Zone B');
     assert.equal(normals[0].months[0].tempMean, 1);
     assert.equal(normals[1].months[0].tempMean, 11);
+  });
+
+  it('skips zones with incomplete monthly normals but keeps other zones in the batch', () => {
+    const zones = [
+      { name: 'Zone A', lat: 1, lon: 2 },
+      { name: 'Zone B', lat: 3, lon: 4 },
+    ];
+    const fullMonths = Array.from({ length: 12 }, (_, index) => index + 1);
+    const shortMonths = Array.from({ length: 11 }, (_, index) => index + 1);
+    const payloads = [
+      {
+        daily: {
+          time: fullMonths.map((month) => `1991-${String(month).padStart(2, '0')}-01`),
+          temperature_2m_mean: fullMonths.map((month) => month),
+          precipitation_sum: fullMonths.map((month) => month + 0.5),
+        },
+      },
+      {
+        daily: {
+          time: shortMonths.map((month) => `1991-${String(month).padStart(2, '0')}-01`),
+          temperature_2m_mean: shortMonths.map((month) => month + 10),
+          precipitation_sum: shortMonths.map((month) => month + 20),
+        },
+      },
+    ];
+
+    const normals = buildZoneNormalsFromBatch(zones, payloads);
+
+    assert.equal(normals.length, 1);
+    assert.equal(normals[0].zone, 'Zone A');
   });
 
   it('requires the new climate-specific zones to be present', () => {
@@ -148,6 +189,39 @@ describe('climate anomalies', () => {
     assert.equal(anomalies[1].zone, 'Zone B');
     assert.equal(anomalies[1].tempDelta, 5);
     assert.equal(anomalies[1].precipDelta, 4);
+  });
+
+  it('skips zones missing monthly normals without failing the whole batch', () => {
+    const zones = [
+      { name: 'Zone A', lat: 1, lon: 2 },
+      { name: 'Zone B', lat: 3, lon: 4 },
+    ];
+    const normalsIndex = indexZoneNormals({
+      normals: [
+        { zone: 'Zone A', months: [{ month: 3, tempMean: 10, precipMean: 2 }] },
+      ],
+    });
+    const payloads = [
+      {
+        daily: {
+          time: ['2026-03-01', '2026-03-02', '2026-03-03', '2026-03-04', '2026-03-05', '2026-03-06', '2026-03-07'],
+          temperature_2m_mean: [12, 12, 12, 12, 12, 12, 12],
+          precipitation_sum: [1, 1, 1, 1, 1, 1, 1],
+        },
+      },
+      {
+        daily: {
+          time: ['2026-03-01', '2026-03-02', '2026-03-03', '2026-03-04', '2026-03-05', '2026-03-06', '2026-03-07'],
+          temperature_2m_mean: [25, 25, 25, 25, 25, 25, 25],
+          precipitation_sum: [9, 9, 9, 9, 9, 9, 9],
+        },
+      },
+    ];
+
+    const anomalies = buildClimateAnomaliesFromBatch(zones, payloads, normalsIndex);
+
+    assert.equal(anomalies.length, 1);
+    assert.equal(anomalies[0].zone, 'Zone A');
   });
 
   it('classifies wet precipitation anomalies with calibrated daily thresholds', () => {
