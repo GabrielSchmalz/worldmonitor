@@ -134,6 +134,7 @@ export class PanelLayoutManager implements AppModule {
   private proBlockUnsubscribe: (() => void) | null = null;
   private unsubscribeEntitlementChange: (() => void) | null = null;
   private unsubscribePaymentFailureBanner: (() => void) | null = null;
+  private boundWidgetCreatorHandler: ((e: Event) => void) | null = null;
 
   constructor(ctx: AppContext, callbacks: PanelLayoutManagerCallbacks) {
     this.ctx = ctx;
@@ -183,6 +184,17 @@ export class PanelLayoutManager implements AppModule {
       this.updatePanelGating(state);
     });
     this.fetchGitHubStars();
+
+    // Handle analyst action chip "Create chart widget →" click
+    this.boundWidgetCreatorHandler = ((e: CustomEvent<{ initialMessage?: string }>) => {
+      openWidgetChatModal({
+        mode: 'create',
+        tier: 'pro',
+        initialMessage: e.detail.initialMessage,
+        onComplete: (spec) => this.addCustomWidget(spec),
+      });
+    }) as EventListener;
+    this.ctx.container.addEventListener('wm:open-widget-creator', this.boundWidgetCreatorHandler);
   }
 
   destroy(): void {
@@ -192,6 +204,10 @@ export class PanelLayoutManager implements AppModule {
     this.unsubscribeAuth = null;
     this.proBlockUnsubscribe?.();
     this.proBlockUnsubscribe = null;
+    if (this.boundWidgetCreatorHandler) {
+      this.ctx.container.removeEventListener('wm:open-widget-creator', this.boundWidgetCreatorHandler);
+      this.boundWidgetCreatorHandler = null;
+    }
     this.panelDragCleanupHandlers.forEach((cleanup) => cleanup());
     this.panelDragCleanupHandlers = [];
     if (this.criticalBannerEl) {
