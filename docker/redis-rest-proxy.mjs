@@ -26,7 +26,7 @@ const PORT = parseInt(process.env.PORT || '80', 10);
 const client = createClient({ url: REDIS_URL });
 client.on('error', (err) => console.error('Redis error:', err.message));
 await client.connect();
-console.log(`Connected to Redis at ${REDIS_URL}`);
+console.log(`Connected to Redis at ${REDIS_URL.replace(/\/\/:[^@]+@/, '//:*****@')}`);
 
 function checkAuth(req) {
   if (!TOKEN) return true;

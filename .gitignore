@@ -21,6 +21,7 @@ CLAUDE.md
 .windsurf/
 skills/
 !api/skills/
+docker-compose.override.yml
 ideas/
 docs/internal/
 docs/ideation/
