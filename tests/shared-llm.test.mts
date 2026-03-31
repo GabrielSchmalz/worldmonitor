@@ -9,6 +9,7 @@ const originalOpenRouterApiKey = process.env.OPENROUTER_API_KEY;
 const originalOllamaApiUrl = process.env.OLLAMA_API_URL;
 const originalLlmApiUrl = process.env.LLM_API_URL;
 const originalLlmApiKey = process.env.LLM_API_KEY;
+const originalLlmModel = process.env.LLM_MODEL;
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
@@ -27,6 +28,9 @@ afterEach(() => {
 
   if (originalLlmApiKey === undefined) delete process.env.LLM_API_KEY;
   else process.env.LLM_API_KEY = originalLlmApiKey;
+
+  if (originalLlmModel === undefined) delete process.env.LLM_MODEL;
+  else process.env.LLM_MODEL = originalLlmModel;
 });
 
 describe('callLlm', () => {
@@ -118,6 +122,120 @@ describe('callLlm', () => {
     assert.equal(postBodies.length, 1);
     assert.equal(postBodies[0]?.url, 'https://openrouter.ai/api/v1/chat/completions');
     assert.equal(postBodies[0]?.body.model, 'google/gemini-2.5-pro');
+  });
+
+  it('sends max_completion_tokens instead of max_tokens for GPT-5.x models', async () => {
+    delete process.env.GROQ_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
+    delete process.env.OLLAMA_API_URL;
+    process.env.LLM_API_URL = 'https://api.openai.com/v1/chat/completions';
+    process.env.LLM_API_KEY = 'test-openai-key';
+    process.env.LLM_MODEL = 'gpt-5.4-mini';
+
+    const postBodies: Array<Record<string, unknown>> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+
+      if ((init?.method || 'GET') === 'GET') {
+        return new Response('', { status: 200 });
+      }
+
+      const body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
+      postBodies.push(body);
+
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: 'gpt-5.4 response' } }],
+        usage: { total_tokens: 50 },
+      }), { status: 200 });
+    }) as typeof fetch;
+
+    const result = await callLlm({
+      messages: [{ role: 'user', content: 'Test GPT-5.4 token param.' }],
+      maxTokens: 1000,
+    });
+
+    assert.ok(result);
+    assert.equal(result.provider, 'generic');
+    assert.equal(result.model, 'gpt-5.4-mini');
+    assert.equal(postBodies.length, 1);
+    assert.equal(postBodies[0]?.max_completion_tokens, 1000);
+    assert.equal(postBodies[0]?.max_tokens, undefined);
+  });
+
+  it('sends max_tokens for non-GPT-5.x models', async () => {
+    process.env.GROQ_API_KEY = 'groq-test-key';
+    delete process.env.OPENROUTER_API_KEY;
+    delete process.env.OLLAMA_API_URL;
+    delete process.env.LLM_API_URL;
+    delete process.env.LLM_API_KEY;
+
+    const postBodies: Array<Record<string, unknown>> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+
+      if ((init?.method || 'GET') === 'GET') {
+        return new Response('', { status: 200 });
+      }
+
+      const body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
+      postBodies.push(body);
+
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: 'groq response' } }],
+        usage: { total_tokens: 30 },
+      }), { status: 200 });
+    }) as typeof fetch;
+
+    const result = await callLlm({
+      messages: [{ role: 'user', content: 'Test Groq token param.' }],
+      maxTokens: 500,
+    });
+
+    assert.ok(result);
+    assert.equal(result.provider, 'groq');
+    assert.equal(postBodies.length, 1);
+    assert.equal(postBodies[0]?.max_tokens, 500);
+    assert.equal(postBodies[0]?.max_completion_tokens, undefined);
+  });
+
+  it('sends max_completion_tokens for vendor-prefixed o-series models', async () => {
+    delete process.env.GROQ_API_KEY;
+    process.env.OPENROUTER_API_KEY = 'or-test-key';
+    delete process.env.OLLAMA_API_URL;
+    delete process.env.LLM_API_URL;
+    delete process.env.LLM_API_KEY;
+
+    const postBodies: Array<Record<string, unknown>> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+
+      if ((init?.method || 'GET') === 'GET') {
+        return new Response('', { status: 200 });
+      }
+
+      const body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
+      postBodies.push(body);
+
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: 'o3 response' } }],
+        usage: { total_tokens: 40 },
+      }), { status: 200 });
+    }) as typeof fetch;
+
+    const result = await callLlm({
+      messages: [{ role: 'user', content: 'Test vendor prefix.' }],
+      providerOrder: ['openrouter'],
+      modelOverrides: { openrouter: 'openai/o3-mini' },
+    });
+
+    assert.ok(result);
+    assert.equal(result.model, 'openai/o3-mini');
+    assert.equal(postBodies.length, 1);
+    assert.equal(postBodies[0]?.max_completion_tokens, 1500);
+    assert.equal(postBodies[0]?.max_tokens, undefined);
   });
 
   it('falls back within an explicit provider order when the upper model fails', async () => {

@@ -127,6 +127,18 @@ export function stripThinkingTags(text: string): string {
 const PROVIDER_CHAIN = ['ollama', 'groq', 'openrouter', 'generic'] as const;
 const PROVIDER_SET = new Set<string>(PROVIDER_CHAIN);
 
+/**
+ * GPT-5.x and o-series models require `max_completion_tokens` instead of
+ * `max_tokens`. Sending the wrong parameter causes a 400 error.
+ */
+function buildTokenParam(model: string, maxTokens: number): Record<string, number> {
+  const basename = model.includes('/') ? model.split('/').pop()! : model;
+  const needsNewParam = /^(gpt-5|o[1-9])/.test(basename);
+  return needsNewParam
+    ? { max_completion_tokens: maxTokens }
+    : { max_tokens: maxTokens };
+}
+
 export interface LlmCallOptions {
   messages: Array<{ role: string; content: string }>;
   temperature?: number;
@@ -284,7 +296,7 @@ export function callLlmReasoningStream(opts: LlmStreamOptions): ReadableStream<U
               model: creds.model,
               messages,
               temperature,
-              max_tokens: maxTokens,
+              ...buildTokenParam(creds.model, maxTokens),
               stream: true,
             }),
             signal: activeController.signal,
@@ -410,7 +422,7 @@ export async function callLlm(opts: LlmCallOptions): Promise<LlmCallResult | nul
           model: creds.model,
           messages,
           temperature,
-          max_tokens: maxTokens,
+          ...buildTokenParam(creds.model, maxTokens),
         }),
         signal: AbortSignal.timeout(timeoutMs),
       });
