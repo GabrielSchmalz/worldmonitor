@@ -64,7 +64,7 @@ async function runCommand(args) {
   return client.sendCommand([cmd, ...cmdArgs.map(String)]);
 }
 
-const MAX_BODY_BYTES = 1024 * 1024; // 1 MB
+const MAX_BODY_BYTES = 10 * 1024 * 1024; // 10 MB — sanctions entities index can reach ~3 MB
 
 async function readBody(req) {
   const chunks = [];
