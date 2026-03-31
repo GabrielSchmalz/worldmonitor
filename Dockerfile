@@ -65,8 +65,9 @@ USER appuser
 
 EXPOSE 8080
 
-# Healthcheck via nginx
+# Healthcheck — verify nginx is accepting connections (IPv4 explicit to avoid
+# Alpine resolving localhost to ::1 while nginx listens on 0.0.0.0 only)
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD wget -qO- http://localhost:8080/api/health || exit 1
+  CMD wget -qO /dev/null http://127.0.0.1:8080/ || exit 1
 
 CMD ["/app/entrypoint.sh"]

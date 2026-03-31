@@ -1,0 +1,24 @@
+services:
+  # Disable ais-relay (maritime tracking — not needed for crypto OSINT)
+  ais-relay:
+    entrypoint: ["echo", "ais-relay disabled"]
+    restart: "no"
+
+  worldmonitor:
+    environment:
+      # LLM (fill when API key is obtained)
+      GROQ_API_KEY: ""
+
+      # Markets (fill when API key is obtained)
+      FINNHUB_API_KEY: ""
+
+      # Macro (fill when API key is obtained)
+      FRED_API_KEY: ""
+
+  redis:
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --requirepass "d42ae30e6d8b4d9ff991702c0817aa80"
+
+  redis-rest:
+    environment:
+      SRH_TOKEN: "wm-local-token"
+      SRH_CONNECTION_STRING: "redis://:d42ae30e6d8b4d9ff991702c0817aa80@redis:6379"
