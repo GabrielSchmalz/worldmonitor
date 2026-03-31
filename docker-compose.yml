@@ -72,7 +72,7 @@ services:
   redis:
     image: docker.io/redis:7-alpine
     container_name: worldmonitor-redis
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --requirepass "${REDIS_PASSWORD:-wm-redis-secure}"
     volumes:
       - redis-data:/data
     restart: unless-stopped
@@ -87,7 +87,7 @@ services:
       - "127.0.0.1:8079:80"
     environment:
       SRH_TOKEN: "${REDIS_TOKEN:-wm-local-token}"
-      SRH_CONNECTION_STRING: "redis://redis:6379"
+      SRH_CONNECTION_STRING: "redis://:${REDIS_PASSWORD:-wm-redis-secure}@redis:6379"
     depends_on:
       - redis
     restart: unless-stopped

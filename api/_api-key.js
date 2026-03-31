@@ -56,13 +56,6 @@ export function validateApiKey(req, options = {}) {
       const validKeys = rawEnv.split(',').filter(Boolean);
       if (!validKeys.includes(key)) return {
         valid: false, required: true, error: 'Invalid API key',
-        _debug: {
-          receivedKey: key,
-          receivedKeyLen: key.length,
-          envVarRaw: rawEnv,
-          parsedKeys: validKeys,
-          envVarLen: rawEnv.length,
-        },
       };
     }
     return { valid: true, required: forceKey };
