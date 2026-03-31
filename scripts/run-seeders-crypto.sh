@@ -5,12 +5,20 @@
 # Subset of run-seeders.sh — targets BTC/USDT trading-relevant data only.
 # Saves Redis memory and cron time by skipping geopolitical/military/weather seeders.
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Source .env for API keys (Docker Compose reads this automatically,
+# but host-side seeders need it explicitly).
+if [ -f "$PROJECT_DIR/.env" ]; then
+  set -a
+  . "$PROJECT_DIR/.env"
+  set +a
+fi
+
 UPSTASH_REDIS_REST_URL="${UPSTASH_REDIS_REST_URL:-http://localhost:8079}"
 UPSTASH_REDIS_REST_TOKEN="${UPSTASH_REDIS_REST_TOKEN:-wm-local-token}"
 export UPSTASH_REDIS_REST_URL UPSTASH_REDIS_REST_TOKEN
-
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Source API keys from docker-compose.override.yml if present.
 OVERRIDE="$PROJECT_DIR/docker-compose.override.yml"
